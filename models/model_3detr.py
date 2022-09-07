@@ -5,8 +5,8 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
-from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
-from third_party.pointnet2.pointnet2_utils import furthest_point_sample
+from models.pointnet2_modules import PointnetSAModuleVotes
+from pytorch3d.ops import sample_farthest_points
 from utils.pc_util import scale_points, shift_scale_points
 
 from models.helpers import GenericMLP
@@ -164,16 +164,9 @@ class Model3DETR(nn.Module):
         self.mlp_heads = nn.ModuleDict(mlp_heads)
 
     def get_query_embeddings(self, encoder_xyz, point_cloud_dims):
-        query_inds = furthest_point_sample(encoder_xyz, self.num_queries)
-        query_inds = query_inds.long()
-        query_xyz = [torch.gather(encoder_xyz[..., x], 1, query_inds) for x in range(3)]
-        query_xyz = torch.stack(query_xyz)
-        query_xyz = query_xyz.permute(1, 2, 0)
+        #gives the same results as the other code
+        query_xyz, _ = sample_farthest_points(encoder_xyz, K=self.num_queries)
 
-        # Gater op above can be replaced by the three lines below from the pointnet2 codebase
-        # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
-        # query_xyz = gather_operation(xyz_flipped, query_inds.int())
-        # query_xyz = query_xyz.transpose(1, 2)
         pos_embed = self.pos_embedding(query_xyz, input_range=point_cloud_dims)
         query_embed = self.query_projection(pos_embed)
         return query_xyz, query_embed
@@ -187,6 +180,7 @@ class Model3DETR(nn.Module):
 
     def run_encoder(self, point_clouds):
         xyz, features = self._break_up_pc(point_clouds)
+        # seems to be the same as in the colab
         pre_enc_xyz, pre_enc_features, pre_enc_inds = self.pre_encoder(xyz, features)
         # xyz: batch x npoints x 3
         # features: batch x channel x npoints
@@ -307,6 +301,7 @@ class Model3DETR(nn.Module):
         point_clouds = inputs["point_clouds"]
 
         enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
+        breakpoint()
         enc_features = self.encoder_to_decoder_projection(
             enc_features.permute(1, 2, 0)
         ).permute(2, 0, 1)
@@ -318,8 +313,8 @@ class Model3DETR(nn.Module):
             return enc_xyz, enc_features.transpose(0, 1)
 
         point_cloud_dims = [
-            inputs["point_cloud_dims_min"],
-            inputs["point_cloud_dims_max"],
+            inputs["point_cloud_dims_min"].float(),
+            inputs["point_cloud_dims_max"].float(),
         ]
         query_xyz, query_embed = self.get_query_embeddings(enc_xyz, point_cloud_dims)
         # query_embed: batch x channel x npoint
