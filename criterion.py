@@ -375,6 +375,34 @@ class SetCriterion(nn.Module):
         return loss, loss_dict
 
 
+class SimpleLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, outputs, targets):
+        # breakpoint()
+        center_dist = torch.cdist(
+            outputs['outputs']["center_normalized"],
+            targets["gt_box_centers_normalized"], p=1
+        )
+        loss = center_dist.sum()
+        loss_dict = {"center_dist" :center_dist}
+        if "aux_outputs" in outputs:
+            for k in range(len(outputs["aux_outputs"])):
+                center_dist = torch.cdist(
+                    outputs["aux_outputs"][k]['center_normalized'], 
+                    targets["gt_box_centers_normalized"], p=1
+                    )
+                loss += center_dist.sum()
+                # for interm_key in interm_loss_dict:
+                loss_dict["interm_%d"%(k)] = center_dist
+        return loss, loss_dict
+
+def build_simple_criterion(args, dataset_config):
+    criterion = SimpleLoss()
+    return criterion
+
+
 def build_criterion(args, dataset_config):
     matcher = Matcher(
         cost_class=args.matcher_cls_cost,

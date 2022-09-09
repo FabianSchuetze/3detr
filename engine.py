@@ -54,12 +54,12 @@ def train_one_epoch(
     logger,
 ):
 
-    ap_calculator = APCalculator(
-        dataset_config=dataset_config,
-        ap_iou_thresh=[0.25, 0.5],
-        class2type_map=dataset_config.class2type,
-        exact_eval=False,
-    )
+    # ap_calculator = APCalculator(
+        # dataset_config=dataset_config,
+        # ap_iou_thresh=[0.25, 0.5],
+        # class2type_map=dataset_config.class2type,
+        # exact_eval=False,
+    # )
 
     curr_iter = curr_epoch * len(dataset_loader)
     max_iters = args.max_epoch * len(dataset_loader)
@@ -70,6 +70,7 @@ def train_one_epoch(
 
     model.train()
     barrier()
+    total_losses = 0
 
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()
@@ -100,15 +101,17 @@ def train_one_epoch(
         if args.clip_gradient > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_gradient)
         optimizer.step()
+        with torch.no_grad():
+            total_losses += loss.cpu().float()
 
-        if curr_iter % args.log_metrics_every == 0:
+        # if curr_iter % args.log_metrics_every == 0:
             # This step is slow. AP is computed approximately and locally during training.
             # It will gather outputs and ground truth across all ranks.
             # It is memory intensive as point_cloud ground truth is a large tensor.
             # If GPU memory is not an issue, uncomment the following lines.
             # outputs["outputs"] = all_gather_dict(outputs["outputs"])
             # batch_data_label = all_gather_dict(batch_data_label)
-            ap_calculator.step_meter(outputs, batch_data_label)
+            # ap_calculator.step_meter(outputs, batch_data_label)
 
         time_delta.update(time.time() - curr_time)
         loss_avg.update(loss_reduced.item())
@@ -133,7 +136,7 @@ def train_one_epoch(
         curr_iter += 1
         barrier()
 
-    return ap_calculator
+    return total_losses
 
 
 @torch.no_grad()
@@ -191,7 +194,7 @@ def evaluate(
         # Memory intensive as it gathers point cloud GT tensor across all ranks
         outputs["outputs"] = all_gather_dict(outputs["outputs"])
         batch_data_label = all_gather_dict(batch_data_label)
-        ap_calculator.step_meter(outputs, batch_data_label)
+        # ap_calculator.step_meter(outputs, batch_data_label)
         time_delta.update(time.time() - curr_time)
         if is_primary() and curr_iter % args.log_every == 0:
             mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)

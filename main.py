@@ -15,7 +15,7 @@ from datasets import build_dataset
 from engine import evaluate, train_one_epoch
 from models import build_model
 from optimizer import build_optimizer
-from criterion import build_criterion
+from criterion import build_criterion, build_simple_criterion
 from utils.dist import init_distributed, is_distributed, is_primary, get_rank, barrier
 from utils.misc import my_worker_init_fn
 from utils.io import save_checkpoint, resume_if_possible
@@ -102,7 +102,8 @@ def make_args_parser():
 
     ##### Dataset #####
     parser.add_argument(
-        "--dataset_name", required=True, type=str, choices=["scannet", "sunrgbd"]
+        "--dataset_name", required=True, type=str, 
+        choices=["scannet", "sunrgbd", "itodd"]
     )
     parser.add_argument(
         "--dataset_root_dir",
@@ -180,7 +181,7 @@ def do_train(
         if is_distributed():
             dataloaders["train_sampler"].set_epoch(epoch)
 
-        aps = train_one_epoch(
+        episode_loss = train_one_epoch(
             args,
             epoch,
             model,
@@ -202,9 +203,10 @@ def do_train(
             filename="checkpoint.pth",
         )
 
-        metrics = aps.compute_metrics()
-        metric_str = aps.metrics_to_str(metrics, per_class=False)
-        metrics_dict = aps.metrics_to_dict(metrics)
+        metrics = episode_loss
+        # metrics = aps.compute_metrics()
+        metric_str = "%.3f"%(metrics)
+        metrics_dict = {"translation":metrics}
         curr_iter = epoch * len(dataloaders["train"])
         if is_primary():
             print("==" * 10)
@@ -345,7 +347,7 @@ def main(local_rank, args):
         )
 
     print(f"Called with args: {args}")
-    torch.cuda.set_device(local_rank)
+    # torch.cuda.set_device(local_rank)
     np.random.seed(args.seed + get_rank())
     torch.manual_seed(args.seed + get_rank())
     if torch.cuda.is_available():
@@ -353,7 +355,7 @@ def main(local_rank, args):
 
     datasets, dataset_config = build_dataset(args)
     model, _ = build_model(args, dataset_config)
-    model = model.cuda(local_rank)
+    # model = model.cuda(local_rank)
     model_no_ddp = model
 
     if is_distributed():
@@ -361,8 +363,8 @@ def main(local_rank, args):
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[local_rank]
         )
-    criterion = build_criterion(args, dataset_config)
-    criterion = criterion.cuda(local_rank)
+    criterion = build_simple_criterion(args, dataset_config)
+    # criterion = criterion.cuda(local_rank)
 
     dataloaders = {}
     if args.test_only:

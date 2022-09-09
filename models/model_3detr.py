@@ -165,7 +165,8 @@ class Model3DETR(nn.Module):
 
     def get_query_embeddings(self, encoder_xyz, point_cloud_dims):
         #gives the same results as the other code
-        query_xyz, _ = sample_farthest_points(encoder_xyz, K=self.num_queries)
+        # query_xyz, _ = sample_farthest_points(encoder_xyz, K=self.num_queries)
+        query_xyz = encoder_xyz.mean(axis=1).unsqueeze(1)
 
         pos_embed = self.pos_embedding(query_xyz, input_range=point_cloud_dims)
         query_embed = self.query_projection(pos_embed)
@@ -221,29 +222,29 @@ class Model3DETR(nn.Module):
         box_features = box_features.reshape(num_layers * batch, channel, num_queries)
 
         # mlp head outputs are (num_layers x batch) x noutput x nqueries, so transpose last two dims
-        cls_logits = self.mlp_heads["sem_cls_head"](box_features).transpose(1, 2)
+        # cls_logits = self.mlp_heads["sem_cls_head"](box_features).transpose(1, 2)
         center_offset = (
             self.mlp_heads["center_head"](box_features).sigmoid().transpose(1, 2) - 0.5
         )
-        size_normalized = (
-            self.mlp_heads["size_head"](box_features).sigmoid().transpose(1, 2)
-        )
-        angle_logits = self.mlp_heads["angle_cls_head"](box_features).transpose(1, 2)
-        angle_residual_normalized = self.mlp_heads["angle_residual_head"](
-            box_features
-        ).transpose(1, 2)
+        # size_normalized = (
+            # self.mlp_heads["size_head"](box_features).sigmoid().transpose(1, 2)
+        # )
+        # angle_logits = self.mlp_heads["angle_cls_head"](box_features).transpose(1, 2)
+        # angle_residual_normalized = self.mlp_heads["angle_residual_head"](
+            # box_features
+        # ).transpose(1, 2)
 
         # reshape outputs to num_layers x batch x nqueries x noutput
-        cls_logits = cls_logits.reshape(num_layers, batch, num_queries, -1)
+        # cls_logits = cls_logits.reshape(num_layers, batch, num_queries, -1)
         center_offset = center_offset.reshape(num_layers, batch, num_queries, -1)
-        size_normalized = size_normalized.reshape(num_layers, batch, num_queries, -1)
-        angle_logits = angle_logits.reshape(num_layers, batch, num_queries, -1)
-        angle_residual_normalized = angle_residual_normalized.reshape(
-            num_layers, batch, num_queries, -1
-        )
-        angle_residual = angle_residual_normalized * (
-            np.pi / angle_residual_normalized.shape[-1]
-        )
+        # size_normalized = size_normalized.reshape(num_layers, batch, num_queries, -1)
+        # angle_logits = angle_logits.reshape(num_layers, batch, num_queries, -1)
+        # angle_residual_normalized = angle_residual_normalized.reshape(
+            # num_layers, batch, num_queries, -1
+        # )
+        # angle_residual = angle_residual_normalized * (
+            # np.pi / angle_residual_normalized.shape[-1]
+        # )
 
         outputs = []
         for l in range(num_layers):
@@ -254,37 +255,37 @@ class Model3DETR(nn.Module):
             ) = self.box_processor.compute_predicted_center(
                 center_offset[l], query_xyz, point_cloud_dims
             )
-            angle_continuous = self.box_processor.compute_predicted_angle(
-                angle_logits[l], angle_residual[l]
-            )
-            size_unnormalized = self.box_processor.compute_predicted_size(
-                size_normalized[l], point_cloud_dims
-            )
-            box_corners = self.box_processor.box_parametrization_to_corners(
-                center_unnormalized, size_unnormalized, angle_continuous
-            )
+            # angle_continuous = self.box_processor.compute_predicted_angle(
+                # angle_logits[l], angle_residual[l]
+            # )
+            # size_unnormalized = self.box_processor.compute_predicted_size(
+                # size_normalized[l], point_cloud_dims
+            # )
+            # box_corners = self.box_processor.box_parametrization_to_corners(
+                # center_unnormalized, size_unnormalized, angle_continuous
+            # )
 
             # below are not used in computing loss (only for matching/mAP eval)
             # we compute them with no_grad() so that distributed training does not complain about unused variables
-            with torch.no_grad():
-                (
-                    semcls_prob,
-                    objectness_prob,
-                ) = self.box_processor.compute_objectness_and_cls_prob(cls_logits[l])
+            # with torch.no_grad():
+                # (
+                    # semcls_prob,
+                    # objectness_prob,
+                # ) = self.box_processor.compute_objectness_and_cls_prob(cls_logits[l])
 
             box_prediction = {
-                "sem_cls_logits": cls_logits[l],
+                # "sem_cls_logits": cls_logits[l],
                 "center_normalized": center_normalized.contiguous(),
                 "center_unnormalized": center_unnormalized,
-                "size_normalized": size_normalized[l],
-                "size_unnormalized": size_unnormalized,
-                "angle_logits": angle_logits[l],
-                "angle_residual": angle_residual[l],
-                "angle_residual_normalized": angle_residual_normalized[l],
-                "angle_continuous": angle_continuous,
-                "objectness_prob": objectness_prob,
-                "sem_cls_prob": semcls_prob,
-                "box_corners": box_corners,
+                # "size_normalized": size_normalized[l],
+                # "size_unnormalized": size_unnormalized,
+                # "angle_logits": angle_logits[l],
+                # "angle_residual": angle_residual[l],
+                # "angle_residual_normalized": angle_residual_normalized[l],
+                # "angle_continuous": angle_continuous,
+                # "objectness_prob": objectness_prob,
+                # "sem_cls_prob": semcls_prob,
+                # "box_corners": box_corners,
             }
             outputs.append(box_prediction)
 
@@ -301,7 +302,6 @@ class Model3DETR(nn.Module):
         point_clouds = inputs["point_clouds"]
 
         enc_xyz, enc_features, enc_inds = self.run_encoder(point_clouds)
-        breakpoint()
         enc_features = self.encoder_to_decoder_projection(
             enc_features.permute(1, 2, 0)
         ).permute(2, 0, 1)
